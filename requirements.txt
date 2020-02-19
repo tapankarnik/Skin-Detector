@@ -1,8 +1,15 @@
 cycler==0.10.0
+decorator==4.4.1
+dlib==19.19.0
+imageio==2.8.0
+imutils==0.5.3
 kiwisolver==1.1.0
+llvmlite==0.31.0
 matplotlib==3.0.3
+numba==0.47.0
 numpy==1.18.1
 opencv-python==4.2.0.32
+Pillow==7.0.0
 pyparsing==2.4.6
 python-dateutil==2.8.1
 six==1.14.0
