@@ -6,7 +6,7 @@ import dlib
 import argparse
 import imutils
 from imutils import face_utils
-
+import os
 from numba import jit
 
 def get_arguments():
@@ -156,6 +156,8 @@ def get_values(indices, image, temp_img):
 
 if __name__=='__main__':
     args = get_arguments()
+    if not os.path.exists('outputs'):
+        os.makedirs('outputs')
     image_BGR = cv2.imread('input/'+args.input)
 
     image_BGR = imutils.resize(image_BGR, args.width)
