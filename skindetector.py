@@ -93,8 +93,7 @@ def calc_Histogram(image, ellipse):
 
 def normalize_histogram(hist_3D):
     hist_3D = optimized_normalization(hist_3D)
-    
-    # hist_3D = hist_3D/27
+    hist_3D = hist_3D/27
     return hist_3D
 
 @jit(nopython=True)
@@ -112,20 +111,18 @@ def optimized_normalization(hist_3D):
 def get_indices(image, h, lower, upper):
 
     indices = list()
-    for i in range(0,256):
-        for j in range(0,256):
-            for k in range(256):
-                if h[i,j,k]>=lower and h[i,j,k]<=upper:
-                    indices.append([i,j,k])
-        
+    for (i,j,k), _ in np.ndenumerate(h):
+        if h[i,j,k]>=lower and h[i,j,k]<=upper:
+            indices.append([i,j,k])
     return np.array(indices)
 
 def calc_dynamic_thresholds(h, image, real_image, mask_image, ID):
 
+    h[0,0,0] = 0
     mean = np.mean(h[h>0])
     std = np.std(h[h>0])
-    # factor = 0.3
-    lower_freq = mean
+    factor = 0.2
+    lower_freq = mean - factor*std
     upper_freq = np.max(h)
     print("Mean "+str(mean))
     print("Std Deviation "+str(std))
@@ -154,6 +151,9 @@ def get_values(indices, image, temp_img):
                     temp_img[i,j] = 1
     return temp_img
 
+def get_mask_image(image, ellipse):
+    return cv2.bitwise_and(image, image, mask=ellipse)
+
 if __name__=='__main__':
     args = get_arguments()
     if not os.path.exists('outputs'):
@@ -176,13 +176,18 @@ if __name__=='__main__':
     #This condition is for the dynamic approach
     if rects is not None:
         mask_img, ellipse = get_ellipse(img, rects) 
+        mask_img_hsv = get_mask_image(img_hsv, ellipse)
+        mask_img_ycrcb = get_mask_image(img_ycrcb, ellipse)
+
         sobel_image = get_sobel(mask_img)
         dilated_image = get_dilation(sobel_image)
-        smooth_image = flip_mask(mask_img, dilated_image.copy(), ellipse) #The.copy() is so that dilated_image doesn't get altered.
-
-        rgb = smooth_image.copy()
-        hsv = cv2.cvtColor(smooth_image, cv2.COLOR_BGR2HSV)
-        ycrcb = cv2.cvtColor(smooth_image, cv2.COLOR_BGR2YCR_CB)
+        # smooth_image = flip_mask(mask_img, dilated_image.copy(), ellipse) #The.copy() is so that dilated_image doesn't get altered.
+        rgb = flip_mask(mask_img, dilated_image.copy(), ellipse) #The.copy() is so that dilated_image doesn't get altered.
+        hsv = flip_mask(mask_img_hsv, dilated_image.copy(), ellipse)
+        ycrcb = flip_mask(mask_img_ycrcb, dilated_image.copy(), ellipse)
+        # rgb = smooth_image.copy()
+        # hsv = cv2.cvtColor(smooth_image.copy(), cv2.COLOR_BGR2HSV)
+        # ycrcb = cv2.cvtColor(smooth_image.copy(), cv2.COLOR_BGR2YCR_CB)
         cv2.imwrite("outputs/masked_hsv.jpg",hsv)
         cv2.imwrite("outputs/masked_ycrcb.jpg",ycrcb)
         print("Calculating RGB 3D Histogram")
@@ -192,13 +197,12 @@ if __name__=='__main__':
         print("Calculating YCrCb 3D Histogram")
         h3 = calc_Histogram(ycrcb, ellipse)
 
-
         print("Normalizing RGB 3D Histogram")
         h1 = normalize_histogram(h1)
-        # print("Normalizing HSV 3D Histogram")
-        # h2 = normalize_histogram(h2,2)
-        # print("Normalizing YCrCb 3D Histogram")
-        # h3 = normalize_histogram(h3,3)
+        print("Normalizing HSV 3D Histogram")
+        h2 = normalize_histogram(h2)
+        print("Normalizing YCrCb 3D Histogram")
+        h3 = normalize_histogram(h3)
 
         mask_image = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
         mask_image_hsv = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
@@ -214,7 +218,6 @@ if __name__=='__main__':
     cv2.imshow("mask",mask_img)
     cv2.imshow("sobel_image",sobel_image)
     cv2.imshow("dilated_image",dilated_image)
-    cv2.imshow("smooth_image", smooth_image)
     cv2.imshow("RGB", rgb)
     cv2.imshow("HSV", hsv)
     cv2.imshow("YCRCB", ycrcb)
@@ -224,8 +227,8 @@ if __name__=='__main__':
     cv2.imshow("masked_skin_ycrcb", cv2.bitwise_and(img,img,mask=masked_image_ycrcb))
     combined = cv2.bitwise_or(cv2.bitwise_or(masked_image_rgb, masked_image_ycrcb), masked_image_ycrcb)
     cv2.imwrite("outputs/final_output.jpg", combined)
-    combined = cv2.bitwise_and(img,img,mask=combined)
     cv2.imshow("combined", combined)
+    combined = cv2.bitwise_and(img,img,mask=combined)
     cv2.imwrite("outputs/combined.jpg", combined)
 
     cv2.imshow("Comparison", np.hstack([img, combined]))
