@@ -3,4 +3,5 @@
 *.pdf
 venv
 *.dat
-
+kolkur
+kolkur/*

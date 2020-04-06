@@ -31,10 +31,9 @@ def get_ellipse(image, rects):
         shape = face_utils.shape_to_np(shape)
         for (x, y) in shape:
             cv2.circle(im, (x, y), 1, (0, 0, 255), -1)
-        cv2.imwrite("outputs/rect.jpg", im)
 
-        left_eye_center = tuple(shape[38])
-        right_eye_center = tuple(shape[43])
+        left_eye_center = tuple(shape[40])
+        right_eye_center = tuple(shape[47])
         eye_center = ((left_eye_center[0]+right_eye_center[0])//2, (left_eye_center[1]+right_eye_center[1])//2)
         eye_center = tuple(map(int, eye_center))
         distance_eyes = int(math.sqrt(pow(right_eye_center[1]-left_eye_center[1], 2) + pow(right_eye_center[0]-left_eye_center[0], 2)))
@@ -48,6 +47,7 @@ def get_ellipse(image, rects):
         mask = cv2.bitwise_and(image, image, mask=ellipse)
         masks.append(mask)
         print("Got mask!")
+    cv2.imwrite("outputs/"+filename+"/"+filename+"_rect.jpg", im)
     h, w, d = image.shape
     mask = np.zeros((h, w, d), np.uint8)
     ellipse = np.zeros((h, w), np.uint8)
@@ -55,19 +55,20 @@ def get_ellipse(image, rects):
     for i in range(len(masks)):
         mask = cv2.bitwise_or(mask,masks[i])
         ellipse = cv2.bitwise_or(ellipse,ellipses[i])
+    cv2.imwrite("outputs/"+filename+"/"+filename+"_mask.jpg", mask)
     return mask, ellipse
 
 def get_sobel(image):
 
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     sobel_mask = cv2.Canny(image, 50, 256)
-    cv2.imwrite("outputs/sobel.jpg",sobel_mask)
+    cv2.imwrite("outputs/"+filename+"/"+filename+"_sobel.jpg",sobel_mask)
     return sobel_mask
 
 def get_dilation(image):
     kernel = np.ones((5,5), np.uint8)
     image = cv2.dilate(image, kernel, iterations=2)
-    cv2.imwrite("outputs/dilated.jpg",image)
+    cv2.imwrite("outputs/"+filename+"/"+filename+"_dilated.jpg",image)
     return image
 
 def flip_mask(image, dilated_image, ellipse):
@@ -137,7 +138,7 @@ def calc_dynamic_thresholds(h, image, real_image, mask_image, ID):
     lower = indices[0]
     upper = indices[-1]
     temp_img = cv2.inRange(real_image, lower, upper)
-    cv2.imwrite("outputs/thresholded"+str(ID)+".jpg",temp_img) 
+    cv2.imwrite("outputs/"+filename+"/"+filename+"_thresholded"+str(ID)+".jpg",temp_img) 
     return temp_img
 
 # @jit(nopython=True)
@@ -154,87 +155,113 @@ def get_values(indices, image, temp_img):
 def get_mask_image(image, ellipse):
     return cv2.bitwise_and(image, image, mask=ellipse)
 
+def check_histogram(h, mask_img, ellipse):
+    '''
+    This function is in case, the masked image after dilation becomes completely black.
+    Dilation completely covers the entire face and after subtracting, nothing is left in the image.
+    '''
+
+    if len(h[h>0])==0:
+        h = calc_Histogram(mask_img, ellipse)
+    return h
+
+
+
 if __name__=='__main__':
     args = get_arguments()
     if not os.path.exists('outputs'):
         os.makedirs('outputs')
-    image_BGR = cv2.imread('input/'+args.input)
-
-    image_BGR = imutils.resize(image_BGR, args.width)
-    img = image_BGR.copy()
-    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    img_ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCR_CB)
-
-    #################
-    detector = dlib.get_frontal_face_detector()
-
-    #Download this file from http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
-    predictor = dlib.shape_predictor('./shape_predictor_68_face_landmarks.dat')  
-    rects = detector(image_BGR, 1)
-    #################
-
-    #This condition is for the dynamic approach
-    if rects is not None:
-        mask_img, ellipse = get_ellipse(img, rects) 
-        mask_img_hsv = get_mask_image(img_hsv, ellipse)
-        mask_img_ycrcb = get_mask_image(img_ycrcb, ellipse)
-
-        sobel_image = get_sobel(mask_img)
-        dilated_image = get_dilation(sobel_image)
-        # smooth_image = flip_mask(mask_img, dilated_image.copy(), ellipse) #The.copy() is so that dilated_image doesn't get altered.
-        rgb = flip_mask(mask_img, dilated_image.copy(), ellipse) #The.copy() is so that dilated_image doesn't get altered.
-        hsv = flip_mask(mask_img_hsv, dilated_image.copy(), ellipse)
-        ycrcb = flip_mask(mask_img_ycrcb, dilated_image.copy(), ellipse)
-        # rgb = smooth_image.copy()
-        # hsv = cv2.cvtColor(smooth_image.copy(), cv2.COLOR_BGR2HSV)
-        # ycrcb = cv2.cvtColor(smooth_image.copy(), cv2.COLOR_BGR2YCR_CB)
-        cv2.imwrite("outputs/masked_hsv.jpg",hsv)
-        cv2.imwrite("outputs/masked_ycrcb.jpg",ycrcb)
-        print("Calculating RGB 3D Histogram")
-        h1 = calc_Histogram(rgb, ellipse)
-        print("Calculating HSV 3D Histogram")
-        h2 = calc_Histogram(hsv, ellipse)
-        print("Calculating YCrCb 3D Histogram")
-        h3 = calc_Histogram(ycrcb, ellipse)
-
-        print("Normalizing RGB 3D Histogram")
-        h1 = normalize_histogram(h1)
-        print("Normalizing HSV 3D Histogram")
-        h2 = normalize_histogram(h2)
-        print("Normalizing YCrCb 3D Histogram")
-        h3 = normalize_histogram(h3)
-
-        mask_image = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
-        mask_image_hsv = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
-        mask_image_ycrcb = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
-        masked_image_rgb = calc_dynamic_thresholds(h1, rgb, img, mask_image, 1)
-        masked_image_hsv  = calc_dynamic_thresholds(h2, hsv, img_hsv, mask_image_hsv, 2)
-        masked_image_ycrcb = calc_dynamic_thresholds(h3, ycrcb, img_ycrcb, mask_image_ycrcb, 3)
-    #Else is for the explicit approach (thresholding)
+    filename = args.input.split('.')[0]
+    if filename!='all':
+        filenames = [filename]
     else:
-        print("No Face Detected!")
-    
-    cv2.imshow("original",img)
-    cv2.imshow("mask",mask_img)
-    cv2.imshow("sobel_image",sobel_image)
-    cv2.imshow("dilated_image",dilated_image)
-    cv2.imshow("RGB", rgb)
-    cv2.imshow("HSV", hsv)
-    cv2.imshow("YCRCB", ycrcb)
+        filenames = [f.split('.')[0] for f in os.listdir('input')]
+    for filename in filenames:
+        print("Working on the image ",filename)
+        if not os.path.exists('outputs/'+filename+'/'):
+            os.makedirs('outputs/'+filename)
+        image_BGR = cv2.imread('input/'+filename+'.jpg')
+        cv2.imwrite("outputs/"+filename+"/"+filename+"_original.jpg", image_BGR)
+        image_BGR = imutils.resize(image_BGR, args.width)
+        img = image_BGR.copy()
+        img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        img_ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCR_CB)
 
-    cv2.imshow("masked_skin_rgb", cv2.bitwise_and(img,img,mask=masked_image_rgb))
-    cv2.imshow("masked_skin_hsv", cv2.bitwise_and(img,img,mask=masked_image_hsv))
-    cv2.imshow("masked_skin_ycrcb", cv2.bitwise_and(img,img,mask=masked_image_ycrcb))
-    combined = cv2.bitwise_or(cv2.bitwise_or(masked_image_rgb, masked_image_ycrcb), masked_image_ycrcb)
-    cv2.imwrite("outputs/final_output.jpg", combined)
-    cv2.imshow("combined", combined)
-    combined = cv2.bitwise_and(img,img,mask=combined)
-    cv2.imwrite("outputs/combined.jpg", combined)
+        #################
+        detector = dlib.get_frontal_face_detector()
 
-    cv2.imshow("Comparison", np.hstack([img, combined]))
-    cv2.waitKey(0)
+        #Download this file from http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
+        predictor = dlib.shape_predictor('./shape_predictor_68_face_landmarks.dat')  
+        rects = detector(image_BGR, 1)
+        #################
 
-    cv2.destroyAllWindows()
+        #This condition is for the dynamic approach
+        if rects is not None:
+            mask_img, ellipse = get_ellipse(img, rects) 
+            mask_img_hsv = get_mask_image(img_hsv, ellipse)
+            mask_img_ycrcb = get_mask_image(img_ycrcb, ellipse)
+
+            sobel_image = get_sobel(mask_img)
+            dilated_image = get_dilation(sobel_image)
+            # smooth_image = flip_mask(mask_img, dilated_image.copy(), ellipse) #The.copy() is so that dilated_image doesn't get altered.
+            rgb = flip_mask(mask_img, dilated_image.copy(), ellipse) #The.copy() is so that dilated_image doesn't get altered.
+            hsv = flip_mask(mask_img_hsv, dilated_image.copy(), ellipse)
+            ycrcb = flip_mask(mask_img_ycrcb, dilated_image.copy(), ellipse)
+            # rgb = smooth_image.copy()
+            # hsv = cv2.cvtColor(smooth_image.copy(), cv2.COLOR_BGR2HSV)
+            # ycrcb = cv2.cvtColor(smooth_image.copy(), cv2.COLOR_BGR2YCR_CB)
+            cv2.imwrite("outputs/"+filename+"/"+filename+"_masked_hsv.jpg",hsv)
+            cv2.imwrite("outputs/"+filename+"/"+filename+"_masked_ycrcb.jpg",ycrcb)
+            print("Calculating RGB 3D Histogram")
+            h1 = calc_Histogram(rgb, ellipse)
+            print("Calculating HSV 3D Histogram")
+            h2 = calc_Histogram(hsv, ellipse)
+            print("Calculating YCrCb 3D Histogram")
+            h3 = calc_Histogram(ycrcb, ellipse)
+
+            print("Checking histograms")
+            h1 = check_histogram(h1, mask_img, ellipse)
+            h2 = check_histogram(h2, mask_img_hsv, ellipse)
+            h3 = check_histogram(h3, mask_img_ycrcb, ellipse)
+
+            print("Normalizing RGB 3D Histogram")
+            h1 = normalize_histogram(h1)
+            print("Normalizing HSV 3D Histogram")
+            h2 = normalize_histogram(h2)
+            print("Normalizing YCrCb 3D Histogram")
+            h3 = normalize_histogram(h3)
+
+            mask_image = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+            mask_image_hsv = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+            mask_image_ycrcb = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+            masked_image_rgb = calc_dynamic_thresholds(h1, rgb, img, mask_image, 1)
+            masked_image_hsv  = calc_dynamic_thresholds(h2, hsv, img_hsv, mask_image_hsv, 2)
+            masked_image_ycrcb = calc_dynamic_thresholds(h3, ycrcb, img_ycrcb, mask_image_ycrcb, 3)
+        #Else is for the explicit approach (thresholding)
+        else:
+            print("No Face Detected!")
+        
+        # cv2.imshow("original",img)
+        # cv2.imshow("mask",mask_img)
+        # cv2.imshow("sobel_image",sobel_image)
+        # cv2.imshow("dilated_image",dilated_image)
+        # cv2.imshow("RGB", rgb)
+        # cv2.imshow("HSV", hsv)
+        # cv2.imshow("YCRCB", ycrcb)
+
+        # cv2.imshow("masked_skin_rgb", cv2.bitwise_and(img,img,mask=masked_image_rgb))
+        # cv2.imshow("masked_skin_hsv", cv2.bitwise_and(img,img,mask=masked_image_hsv))
+        # cv2.imshow("masked_skin_ycrcb", cv2.bitwise_and(img,img,mask=masked_image_ycrcb))
+        combined = cv2.bitwise_or(cv2.bitwise_or(masked_image_rgb, masked_image_ycrcb), masked_image_ycrcb)
+        cv2.imwrite("outputs/"+filename+"/"+filename+"_final_output.jpg", combined)
+        # cv2.imshow("combined", combined)
+        combined = cv2.bitwise_and(img,img,mask=combined)
+        cv2.imwrite("outputs/"+filename+"/"+filename+"_combined.jpg", combined)
+
+        # cv2.imshow("Comparison", np.hstack([img, combined]))
+        # cv2.waitKey(0)
+
+        # cv2.destroyAllWindows()
 
 
     
